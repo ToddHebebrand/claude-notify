@@ -1,0 +1,23 @@
+{
+  "name": "claude-notify-focus",
+  "displayName": "Claude Notify Focus",
+  "description": "Focus a VS Code terminal by name via a vscode:// URL — pairs with the claude-notify notification helper.",
+  "version": "0.1.0",
+  "publisher": "claude-notify",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onUri"
+  ],
+  "main": "./extension.js",
+  "contributes": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ToddHebebrand/claude-notify"
+  },
+  "license": "MIT"
+}

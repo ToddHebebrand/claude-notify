@@ -3,3 +3,5 @@ AppIcon.iconset/
 MakeIcon
 *.dSYM/
 .DS_Store
+extension/node_modules/
+extension/*.vsix

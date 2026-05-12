@@ -1,11 +1,21 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/notify-hook.sh start"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.cwd // \".\"' | { read -r d; nohup \"$HOME/.claude/bin/ClaudeNotify.app/Contents/MacOS/ClaudeNotify\" 'Claude Code' \"Finished in $(basename \"$d\")\" \"open -a 'Visual Studio Code' '$d'\" Glass >/dev/null 2>&1 & } 2>/dev/null || true",
+            "command": "$HOME/.claude/bin/notify-hook.sh stop Glass",
             "async": true
           }
         ]
@@ -16,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); d=$(echo \"$input\" | jq -r '.cwd // \".\"'); m=$(echo \"$input\" | jq -r '.message // \"Needs your attention\"'); nohup \"$HOME/.claude/bin/ClaudeNotify.app/Contents/MacOS/ClaudeNotify\" \"Claude Code — $(basename \"$d\")\" \"$m\" \"open -a 'Visual Studio Code' '$d'\" Funk >/dev/null 2>&1 &",
+            "command": "$HOME/.claude/bin/notify-hook.sh notify Funk",
             "async": true
           }
         ]

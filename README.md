@@ -1,19 +1,21 @@
 # claude-notify
 
-A tiny macOS notification helper for [Claude Code](https://docs.claude.com/en/docs/claude-code) hooks. Sends a native banner when Claude finishes a turn or asks for input, with **click-to-focus your editor** built in.
+A tiny macOS notification helper for [Claude Code](https://docs.claude.com/en/docs/claude-code) hooks. Native banners when Claude finishes a turn or asks for input, **click-to-focus the exact VS Code terminal** where the session lives — via a small companion VS Code extension.
 
 ## Why this exists
 
 - `terminal-notifier` is broken on macOS Sequoia/Tahoe ([julienXX/terminal-notifier#312](https://github.com/julienXX/terminal-notifier/issues/312)) — it exits 0 but never delivers.
-- `osascript display notification` works (after enabling Script Editor in notification settings) but has **no click action**.
+- `osascript display notification` works (after enabling Script Editor in notification settings) but has no click action.
+- VS Code 1.119+ stopped exporting `VSCODE_IPC_HOOK_CLI` in local integrated terminals, so the obvious "send focus to this window" CLI route doesn't work either.
 
-This is a ~100-line Swift CLI built around the modern `UserNotifications` framework, packaged as an ad-hoc-signed `.app` so macOS will accept it. Notifications are clickable; the click runs any shell command you pass.
+The fix is a 100-line Swift CLI using `UserNotifications`, plus a 20-line VS Code extension that handles a `vscode://` URL and calls `terminal.show()`.
 
 ## What you get
 
-- Clickable banners that fire arbitrary shell commands
+- Clickable banners that focus the exact terminal where Claude is running, even across multiple VS Code windows or editor-area tabs
 - Custom icon (coral gradient + SF Symbol, easy to swap)
-- Distinct sounds for different events
+- Distinct sounds for "finished" vs "needs input"
+- Tab auto-naming: `claude · <project> · <session-id>` so you can also visually identify the session
 - No runtime dependencies beyond Apple SDKs
 
 ## Install
@@ -21,50 +23,72 @@ This is a ~100-line Swift CLI built around the modern `UserNotifications` framew
 Requires macOS 13+ and Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/<you>/claude-notify ~/src/claude-notify
+git clone https://github.com/ToddHebebrand/claude-notify ~/src/claude-notify
 cd ~/src/claude-notify
-./build.sh
-./install.sh
+./build.sh && ./install.sh
 ```
 
-`build.sh` compiles the helper, generates the icon, and assembles the `.app` bundle.
-`install.sh` copies the bundle to `~/.claude/bin/`, re-registers it with LaunchServices, and fires a test notification.
+This compiles `ClaudeNotify.app` and installs:
 
-The first time the helper fires, macOS will prompt **"Claude Code wants to send notifications"** — approve it.
+- `~/.claude/bin/ClaudeNotify.app` — notification helper
+- `~/.claude/bin/notify-hook.sh` — hook glue
+- `~/.vscode/extensions/claude-notify.claude-notify-focus-0.1.0/` — the focus extension
 
-## Wire it into Claude Code
+After install:
 
-Copy the snippet from [`examples/settings-hooks.json`](examples/settings-hooks.json) into your `~/.claude/settings.json` (merge into existing `hooks` block if present). The example wires two events:
+1. **Reload VS Code** (Cmd+Shift+P → "Developer: Reload Window") so the extension activates.
+2. **Merge `examples/settings-hooks.json` into `~/.claude/settings.json`** (or copy if you have no existing hooks).
+3. **Restart Claude Code** (or open `/hooks` once) so the new hooks load.
 
-- **`Stop`** — fires when Claude finishes a turn. Banner says "Finished in `<project>`". Glass sound.
-- **`Notification`** — fires when Claude needs input (permission prompts, etc.). Banner shows the request message. Funk sound.
+First time the helper fires, macOS asks **"Claude Code wants to send notifications"** — approve it. After that you're done.
 
-Both default to focusing **Visual Studio Code** on click. To use a different editor, change `open -a 'Visual Studio Code'` to e.g. `open -a 'Cursor'`, `open -a 'Sublime Text'`, etc.
+## How click-to-focus works
 
-> Settings reload note: Claude Code only watches `.claude/settings.json` for changes in sessions where it existed at startup. If hooks don't fire after editing, open `/hooks` once or restart.
+The Stop and Notification hooks compute a deterministic terminal name for your session: `claude · <project> · <first-8-chars-of-session-id>`. The `SessionStart` hook writes that name to the controlling terminal via OSC 2, so VS Code displays it as the tab title.
+
+The notification's click action opens `vscode://claude-notify.claude-notify-focus/focus-terminal?name=<encoded>`. The extension finds the terminal by that exact name and calls `terminal.show()`, which switches the window and the terminal tab.
+
+Multi-window safe (any window can own the terminal). If the extension isn't installed, opening the URL still brings VS Code to the front — you just lose the precise tab focus.
 
 ## Customize
 
-| Want to change | Edit | Then |
+| Want to change | Where | Then |
 |----------------|------|------|
 | Icon glyph | `MakeIcon.swift` — `systemSymbolName: "sparkles"` | `./build.sh && ./install.sh` |
 | Icon color | `MakeIcon.swift` — gradient `CGColor` values | `./build.sh && ./install.sh` |
-| Click action | Third arg in your hook command | reload hooks |
-| Sound | Fifth arg in your hook command (any name from `/System/Library/Sounds`) | reload hooks |
-| Bundle ID | `CLAUDE_NOTIFY_BUNDLE_ID=com.foo.bar ./build.sh` | re-install + re-approve notifications |
+| Editor for fallback focus | `CLAUDE_NOTIFY_EDITOR_APP` env (default `Visual Studio Code`) | edit `notify-hook.sh` invocation |
+| Sound | Second arg to `notify-hook.sh` (any name from `/System/Library/Sounds`) | edit `~/.claude/settings.json` |
+| Tab name format | `notify-hook.sh` — `tab_name=...` line | reinstall hook script |
+| Bundle ID | `CLAUDE_NOTIFY_BUNDLE_ID=com.foo.bar ./build.sh` | reinstall + re-approve notifications |
 
-## CLI
+## Files
 
 ```
-ClaudeNotify <title> <body> [click-shell-cmd] [sound-name]
+.
+├── ClaudeNotify.swift          # the notification helper
+├── MakeIcon.swift              # icon generator
+├── Info.plist.in               # bundle metadata template
+├── notify-hook.sh              # hook glue (called from settings.json)
+├── build.sh                    # compile + iconset + sign
+├── install.sh                  # copy everything to ~/.claude/bin and ~/.vscode/extensions
+├── examples/
+│   └── settings-hooks.json     # SessionStart + Stop + Notification hooks
+└── extension/
+    ├── package.json            # VS Code extension manifest
+    ├── extension.js            # vscode://...focus-terminal handler
+    └── README.md
 ```
-
-The helper stays alive for up to 5 minutes after posting so it can handle a click; if you don't click, it exits silently.
 
 ## Troubleshooting
 
-### No banner appears, but exit code is 0
-The notification permission prompt only shows once. If you missed it, open **System Settings → Notifications**, scroll for **Claude Code** (or whatever you set `CFBundleDisplayName` to), and enable Allow Notifications. Re-run `./install.sh`.
+### Click brings VS Code forward but doesn't focus the right terminal
+Extension didn't load. Reload VS Code (Cmd+Shift+P → "Developer: Reload Window"). To verify it's registered, run `code --list-extensions | grep claude-notify`.
+
+### Tab isn't renamed
+The OSC sequence requires `/dev/tty` to be writable from the hook subprocess. If you launched Claude Code via something that detaches from the terminal (e.g., a wrapper script with `&`), the rename will silently no-op. Launch Claude Code directly from the integrated terminal.
+
+### Notifications exit silently with no banner
+The permission prompt only shows once. If you missed it: System Settings → Notifications → scroll to **Claude Code** → enable Allow Notifications.
 
 ### Icon shows as a generic gray placeholder
 macOS aggressively caches notification icons. Clear them:
@@ -74,16 +98,13 @@ sudo rm -rf /Library/Caches/com.apple.iconservices.store
 killall iconservicesagent iconservicesd Dock usernoted NotificationCenter
 ```
 
-Then fire a new notification.
+Then trigger a fresh notification.
 
 ### "ClaudeNotify.app is not open anymore" dialog
-You launched a build that exited via `exit(0)` while AppKit was loaded — old artifact. Re-run `./build.sh && ./install.sh`.
+You launched an older build. Re-run `./build.sh && ./install.sh`.
 
 ### Click opens Cursor instead of VS Code (or vice versa)
-VS Code's `code` CLI script delegates to whatever `code` is on `PATH` when `VSCODE_IPC_HOOK_CLI` is set, and Cursor hijacks that name. The example hooks use `open -a 'Visual Studio Code'` to bypass `PATH` and route through LaunchServices. If you switched editors, update the click command.
-
-### Click focuses the right VS Code window but not the specific terminal tab
-Known limitation. VS Code 1.119+ no longer exports `VSCODE_IPC_HOOK_CLI` in local integrated terminals (only under Remote-SSH and Dev Containers), so there's no clean way to send a "focus this terminal tab" command. Targeting the workspace folder via `open -a` is the best CLI route. A small VS Code extension listening on a named socket could close the gap; not in scope here.
+The example uses `open -a 'Visual Studio Code'` as the LaunchServices target — bypasses `PATH` (which Cursor often hijacks). Set `CLAUDE_NOTIFY_EDITOR_APP=Cursor` in the hook env if you want Cursor instead.
 
 ## License
 
