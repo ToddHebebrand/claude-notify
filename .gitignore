@@ -1,0 +1,5 @@
+ClaudeNotify.app/
+AppIcon.iconset/
+MakeIcon
+*.dSYM/
+.DS_Store
