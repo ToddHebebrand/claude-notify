@@ -82,6 +82,9 @@ You launched a build that exited via `exit(0)` while AppKit was loaded — old a
 ### Click opens Cursor instead of VS Code (or vice versa)
 VS Code's `code` CLI script delegates to whatever `code` is on `PATH` when `VSCODE_IPC_HOOK_CLI` is set, and Cursor hijacks that name. The example hooks use `open -a 'Visual Studio Code'` to bypass `PATH` and route through LaunchServices. If you switched editors, update the click command.
 
+### Click focuses the right VS Code window but not the specific terminal tab
+Known limitation. VS Code 1.119+ no longer exports `VSCODE_IPC_HOOK_CLI` in local integrated terminals (only under Remote-SSH and Dev Containers), so there's no clean way to send a "focus this terminal tab" command. Targeting the workspace folder via `open -a` is the best CLI route. A small VS Code extension listening on a named socket could close the gap; not in scope here.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
